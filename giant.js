@@ -1,12 +1,13 @@
 import * as THREE from 'three';
 import { getHeightAt } from './utils.js';
 import { giantGeos, stoneMat } from './assets.js';
+import { npcData } from './network.js';
 
 export class StoneGiant {
-    constructor(scene, rng, worldX, worldZ) {
+    constructor(scene, rng, worldX, worldZ, id) {
         this.scene = scene;
+        this.id = id;
         this.group = new THREE.Group();
-        this.group.position.set(worldX, 0, worldZ);
         
         this.scale = 0.5 + rng() * 1.5;
         this.group.scale.set(this.scale, this.scale, this.scale);
@@ -14,9 +15,20 @@ export class StoneGiant {
         this.eyeColor = new THREE.Color().setHSL(rng(), 1.0, 0.5);
         this.eyeMat = new THREE.MeshBasicMaterial({ color: this.eyeColor });
         
-        this.direction = rng() * Math.PI * 2;
         this.speed = (2.0 + rng() * 2.0) * this.scale;
         this.walkCycle = rng() * Math.PI * 2;
+        
+        // Check if we have persistent state for this NPC
+        let loadedState = npcData.giants[id];
+        if (loadedState) {
+            this.group.position.set(loadedState.x, loadedState.y, loadedState.z);
+            this.direction = loadedState.direction;
+            this.health = loadedState.health;
+        } else {
+            this.group.position.set(worldX, 0, worldZ);
+            this.direction = rng() * Math.PI * 2;
+            this.health = 100;
+        }
         
         this.buildModel();
         
@@ -118,6 +130,20 @@ export class StoneGiant {
         
         this.torso.rotation.y = Math.sin(this.walkCycle) * 0.2;
         this.head.rotation.y = -Math.sin(this.walkCycle) * 0.2;
+        
+        // Sync state periodically
+        this.syncTimer = (this.syncTimer || 0) + delta;
+        if (this.syncTimer > 2.0) {
+            this.syncTimer = 0;
+            npcData.giants[this.id] = {
+                x: this.group.position.x,
+                y: this.group.position.y,
+                z: this.group.position.z,
+                direction: this.direction,
+                health: this.health,
+                timestamp: Date.now()
+            };
+        }
     }
     
     dispose() {

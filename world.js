@@ -78,14 +78,18 @@ export class WorldManager {
     addPlacedRadio(radio, saveToDB = false) {
         this.placedRadios.push(radio);
         if (saveToDB) {
-            import('./network.js').then(net => net.addPlacedRadioToDB(radio.serialize()));
+            import('./network.js').then(net => {
+                if(net.addPlacedRadioToDB) net.addPlacedRadioToDB(radio.serialize());
+            });
         }
     }
 
     removeRadio(radio, saveToDB = false) {
         if (radio.id) {
             this.removedRadioIDs.add(radio.id);
-            if (saveToDB) import('./network.js').then(net => net.addRemovedRadioToDB(radio.id));
+            if (saveToDB) import('./network.js').then(net => {
+                if(net.addRemovedRadioToDB) net.addRemovedRadioToDB(radio.id);
+            });
         }
         
         for (const chunk of this.activeChunks.values()) {

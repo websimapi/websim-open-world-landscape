@@ -180,7 +180,8 @@ export class Chunk {
                 const localZ = (rng() - 0.5) * CHUNK_SIZE;
                 const worldX = this.offsetX + localX;
                 const worldZ = this.offsetZ + localZ;
-                const giant = new StoneGiant(this.scene, rng, worldX, worldZ);
+                const giantID = `giant-${this.chunkX},${this.chunkZ}-${i}`;
+                const giant = new StoneGiant(this.scene, rng, worldX, worldZ, giantID);
                 this.giants.push(giant);
             }
         }

@@ -4,7 +4,7 @@ import { RENDER_DISTANCE, CHUNK_SIZE } from './constants.js';
 import { InputController } from './controls.js';
 import { Radio } from './radio.js';
 import { audioListener } from './audio.js';
-import { initNetwork, room, networkWorldData, saveCollabNotes, collabNotes, dbRecord } from './network.js';
+import { initNetwork, room, networkWorldData, saveCollabNotes, collabNotes, dbRecord, playerState, updateNetworkData } from './network.js';
 
 // Wait for database sync before starting application completely
 await initNetwork();
@@ -13,12 +13,29 @@ await initNetwork();
 const state = {
     moveSpeed: 15.0,
     playerHeight: 2.0,
-    money: 0,
-    inventory: [],
+    money: playerState.money || 0,
+    inventory: playerState.inventory || [],
     buildMode: false,
     selectedRadioData: null,
     hologram: null
 };
+
+// Periodic save for player state
+setInterval(() => {
+    savePlayerState();
+}, 5000);
+
+function savePlayerState() {
+    playerState.money = state.money;
+    playerState.inventory = state.inventory;
+    playerState.position = {
+        x: camera.position.x,
+        y: camera.position.y,
+        z: camera.position.z,
+        rotY: camera.rotation.y
+    };
+    updateNetworkData();
+}
 
 // Hologram material
 const hologramMat = new THREE.MeshBasicMaterial({ color: 0x00ff00, wireframe: true, transparent: true, opacity: 0.5 });
@@ -130,6 +147,7 @@ document.getElementById('btn-sell').addEventListener('click', () => {
         state.money += 50;
         moneyDisplay.innerText = state.money;
         world.removeRadio(currentRadio, true);
+        savePlayerState();
     }
     radioMenu.style.display = 'none';
     currentRadio = null;
@@ -141,6 +159,7 @@ document.getElementById('btn-collect').addEventListener('click', () => {
         state.inventory.push(currentRadio.serialize());
         world.removeRadio(currentRadio, true);
         updateInventoryUI();
+        savePlayerState();
     }
     radioMenu.style.display = 'none';
     currentRadio = null;
@@ -217,6 +236,7 @@ document.getElementById('btn-place').addEventListener('click', () => {
         const placed = new Radio(scene, audioListener, state.hologram.position.x, state.hologram.position.y, state.hologram.position.z, Math.random, state.selectedRadioData);
         placed.group.rotation.y = state.hologram.rotation.y;
         world.addPlacedRadio(placed, true);
+        savePlayerState();
     }
     exitBuildMode();
 });
@@ -299,9 +319,24 @@ function getPlayerMesh(username, avatarUrl) {
 
 
 // Get initial ground height
+const startX = playerState.position?.x || 0;
+const startZ = playerState.position?.z || 0;
 world.update(startX, startZ); // Force initial chunk generation
-const startY = world.getGroundHeight(startX, startZ) + state.playerHeight;
+
+let startY = playerState.position?.y;
+if (startY === undefined) {
+    startY = world.getGroundHeight(startX, startZ) + state.playerHeight;
+}
 camera.position.set(startX, startY, startZ);
+
+if (playerState.position?.rotY) {
+    camera.rotation.y = playerState.position.rotY;
+    controls.euler.setFromQuaternion(camera.quaternion);
+}
+
+// Ensure UI matches state on load
+document.getElementById('money-display').innerText = state.money;
+updateInventoryUI();
 
 // 5. Main Game Loop
 const clock = new THREE.Clock();

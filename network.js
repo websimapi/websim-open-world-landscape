@@ -26,20 +26,35 @@ export const room = new WebsimSocket();
 export let dbRecord = null;
 export let networkWorldData = {
     removedRadioIDs: [],
-    placedRadios: []
+    placedRadios: [],
+    timestamp: 0
 };
 export let collabNotes = "";
+
+export let playerState = {
+    position: null,
+    inventory: [],
+    money: 0,
+    timestamp: 0
+};
+
+export let npcData = {
+    giants: {},
+    timestamp: 0
+};
 
 // Initialize network and handle the unique 1-row-per-user DB syncing requirement
 export async function initNetwork() {
     await room.initialize();
     
-    // Fetch all user rows in the database
-    const records = await room.collection('collab_state_v1').getList();
+    // Upgrading to v2 for schema changes per WebSim DB guidelines
+    const records = await room.collection('collab_state_v2').getList();
     
-    let mergedWorldData = { removedRadioIDs: [], placedRadios: [] };
+    let mergedWorldData = { removedRadioIDs: [], placedRadios: [], timestamp: 0 };
     let mergedNotesArray = [];
     let myRecord = null;
+    let mostRecentNpcData = null;
+    let highestNpcTimestamp = 0;
     
     // Iterate over all users' data rows and merge their chunk/world data into ours
     for (const rec of records) {
@@ -51,6 +66,9 @@ export async function initNetwork() {
         if (rec.worldData) {
             try {
                 const wd = JSON.parse(rec.worldData);
+                if (wd.timestamp && wd.timestamp > mergedWorldData.timestamp) {
+                    mergedWorldData.timestamp = wd.timestamp;
+                }
                 if (wd.removedRadioIDs) mergedWorldData.removedRadioIDs.push(...wd.removedRadioIDs);
                 if (wd.placedRadios) mergedWorldData.placedRadios.push(...wd.placedRadios);
             } catch (e) {
@@ -61,6 +79,17 @@ export async function initNetwork() {
         // Merge notes (Column 2 equivalent)
         if (rec.notes) {
             mergedNotesArray.push(`--- Note by ${rec.username} ---\n${rec.notes}`);
+        }
+
+        // Merge NPC Data (Column 4 equivalent)
+        if (rec.npcData) {
+            try {
+                const nd = JSON.parse(rec.npcData);
+                if (nd.timestamp && nd.timestamp > highestNpcTimestamp) {
+                    highestNpcTimestamp = nd.timestamp;
+                    mostRecentNpcData = nd;
+                }
+            } catch(e) {}
         }
     }
     
@@ -74,30 +103,58 @@ export async function initNetwork() {
         uniquePlaced.set(key, radio);
     });
     networkWorldData.placedRadios = Array.from(uniquePlaced.values());
+    networkWorldData.timestamp = mergedWorldData.timestamp || Date.now();
     
     // Keep notes history
     collabNotes = myRecord ? myRecord.notes : "Welcome to the collab project!\n";
+
+    // Setup NPC data from most recent sync
+    if (mostRecentNpcData) {
+        npcData = mostRecentNpcData;
+    } else {
+        npcData.timestamp = Date.now();
+    }
+
+    // Setup Player State (Column 3 equivalent)
+    if (myRecord && myRecord.playerState) {
+        try {
+            const ps = JSON.parse(myRecord.playerState);
+            playerState = ps;
+        } catch(e) {}
+    } else {
+        playerState.timestamp = Date.now();
+    }
     
     // Overwrite OUR single row with the synced global state (per user instructions)
     const payload = {
         worldData: JSON.stringify(networkWorldData),
-        notes: collabNotes
+        notes: collabNotes,
+        playerState: JSON.stringify(playerState),
+        npcData: JSON.stringify(npcData)
     };
     
     if (myRecord) {
-        await room.collection('collab_state_v1').update(myRecord.id, payload);
+        await room.collection('collab_state_v2').update(myRecord.id, payload);
         dbRecord = { ...myRecord, ...payload };
     } else {
-        dbRecord = await room.collection('collab_state_v1').create(payload);
+        dbRecord = await room.collection('collab_state_v2').create(payload);
     }
 }
 
 // Function to save modifications dynamically to our row
-export async function updateNetworkWorldData() {
+export async function updateNetworkData() {
     if (!dbRecord) return;
     try {
-        await room.collection('collab_state_v1').update(dbRecord.id, {
-            worldData: JSON.stringify(networkWorldData)
+        const timestamp = Date.now();
+        networkWorldData.timestamp = timestamp;
+        playerState.timestamp = timestamp;
+        npcData.timestamp = timestamp;
+
+        await room.collection('collab_state_v2').update(dbRecord.id, {
+            worldData: JSON.stringify(networkWorldData),
+            notes: collabNotes,
+            playerState: JSON.stringify(playerState),
+            npcData: JSON.stringify(npcData)
         });
     } catch (e) {
         console.error("Failed to sync chunk update to DB", e);
@@ -107,19 +164,19 @@ export async function updateNetworkWorldData() {
 export async function addRemovedRadioToDB(id) {
     if (!networkWorldData.removedRadioIDs.includes(id)) {
         networkWorldData.removedRadioIDs.push(id);
-        await updateNetworkWorldData();
+        await updateNetworkData();
     }
 }
 
 export async function addPlacedRadioToDB(radioData) {
     networkWorldData.placedRadios.push(radioData);
-    await updateNetworkWorldData();
+    await updateNetworkData();
 }
 
 export async function saveCollabNotes(notesStr) {
     collabNotes = notesStr;
     if (dbRecord) {
-        await room.collection('collab_state_v1').update(dbRecord.id, {
+        await room.collection('collab_state_v2').update(dbRecord.id, {
             notes: collabNotes
         });
     }
