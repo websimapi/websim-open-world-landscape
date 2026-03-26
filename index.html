@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
+    <title>Open World Landscape</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #87CEEB; /* Sky color fallback */
+            font-family: sans-serif;
+            touch-action: none; /* Prevent browser handling of gestures */
+        }
+        #game-canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+        
+        /* Mobile UI Overlay */
+        #mobile-ui {
+            display: none; /* Hidden by default, shown on mobile */
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* Let touches pass through to specific zones */
+            z-index: 10;
+        }
+        
+        /* Zone for touch-to-look (right side usually, but we'll make it full screen behind joystick) */
+        #touch-look-zone {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: auto;
+        }
+
+        /* Container for NippleJS joystick */
+        #joystick-zone {
+            position: absolute;
+            bottom: 50px;
+            left: 50px;
+            width: 120px;
+            height: 120px;
+            pointer-events: auto;
+            /* Prevent default touch actions on joystick area to avoid scrolling */
+            touch-action: none; 
+        }
+
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 20px;
+            height: 20px;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            z-index: 20;
+        }
+        #crosshair::before, #crosshair::after {
+            content: '';
+            position: absolute;
+            background: rgba(255, 255, 255, 0.7);
+        }
+        #crosshair::before { top: 9px; left: 0; width: 20px; height: 2px; }
+        #crosshair::after { top: 0; left: 9px; width: 2px; height: 20px; }
+
+        #start-screen {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.7);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            z-index: 30;
+        }
+        #start-btn {
+            padding: 15px 30px;
+            font-size: 20px;
+            cursor: pointer;
+            background: #4CAF50;
+            border: none;
+            color: white;
+            border-radius: 5px;
+        }
+    </style>
+    
+    <!-- Import Map for dependencies -->
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://esm.sh/three@0.160.0",
+            "three/addons/": "https://esm.sh/three@0.160.0/examples/jsm/",
+            "nipplejs": "https://esm.sh/nipplejs@0.10.1",
+            "simplex-noise": "https://esm.sh/simplex-noise@4.0.1"
+        }
+    }
+    </script>
+</head>
+<body>
+    <canvas id="game-canvas"></canvas>
+    <div id="crosshair"></div>
+    
+    <div id="mobile-ui">
+        <div id="touch-look-zone"></div>
+        <div id="joystick-zone"></div>
+    </div>
+
+    <!-- UI overlays -->
+    <button id="btn-inventory" style="position: absolute; top: 10px; right: 10px; z-index: 20; padding: 10px; display: none; background: #333; color: white; border: 1px solid white; border-radius: 5px;">Inventory</button>
+    
+    <div id="inventory-panel" style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.8); color: white; padding: 20px; z-index: 30; width: 80%; max-width: 400px; border-radius: 8px;">
+        <h2>Inventory</h2>
+        <div id="inventory-list" style="max-height: 200px; overflow-y: auto; margin-bottom: 10px;"></div>
+        <p>Money: $<span id="money-display">0</span></p>
+        <button id="btn-close-inv" style="padding: 10px; cursor: pointer;">Close</button>
+    </div>
+
+    <div id="radio-menu" style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.8); color: white; padding: 20px; z-index: 30; text-align: center; border-radius: 8px;">
+        <h2>Radio Option</h2>
+        <p id="radio-song-name"></p>
+        <button id="btn-collect" style="padding: 10px; margin: 5px; cursor: pointer;">Collect</button>
+        <button id="btn-sell" style="padding: 10px; margin: 5px; cursor: pointer;">Sell ($50)</button>
+        <br><button id="btn-close-radio" style="padding: 10px; margin: 5px; cursor: pointer;">Cancel</button>
+    </div>
+
+    <div id="build-ui" style="display: none; position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 30;">
+        <p style="color: white; text-align: center; text-shadow: 1px 1px 2px black; font-weight: bold; margin-bottom: 5px;">Look to move. Tap/Click to Place.</p>
+        <div style="display: flex; justify-content: center;">
+            <button id="btn-place" style="padding: 15px 30px; font-size: 18px; margin: 0 10px; background: #4CAF50; color: white; border: none; border-radius: 5px; cursor: pointer;">Place</button>
+            <button id="btn-cancel-build" style="padding: 15px 30px; font-size: 18px; margin: 0 10px; background: #f44336; color: white; border: none; border-radius: 5px; cursor: pointer;">Cancel</button>
+        </div>
+    </div>
+
+    <div id="start-screen">
+        <h1>Explore</h1>
+        <p>Desktop: WASD + Mouse | Mobile: Joystick + Touch Drag</p>
+        <button id="start-btn">Click to Start</button>
+    </div>
+
+    <!-- Mobile Dev Panel Toggle -->
+    <button id="btn-dev-toggle" style="position: absolute; top: 10px; left: 10px; z-index: 20; padding: 10px; background: #555; color: white; border: 1px solid #aaa; border-radius: 5px; font-family: monospace;">Dev (~)</button>
+
+    <!-- Collaborative Dev Panel (Hidden by default) -->
+    <div id="dev-panel" style="display: none; position: absolute; top: 10%; left: 10%; width: 80%; height: 80%; background: rgba(15, 20, 25, 0.95); color: #0f0; border: 2px solid #0f0; z-index: 50; padding: 20px; box-sizing: border-box; font-family: monospace; border-radius: 8px; overflow-y: auto;">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #0f0; padding-bottom: 10px; margin-bottom: 10px;">
+            <h2 style="margin: 0; color: #0f0;">Collab Dev Panel [PRODUCTION HOTSWAP]</h2>
+            <button id="btn-close-dev" style="background: transparent; color: #0f0; border: 1px solid #0f0; padding: 5px 15px; cursor: pointer; font-family: monospace;">Close (X)</button>
+        </div>
+        
+        <p style="color: #aaa; margin-bottom: 15px;">Welcome! This panel and the codebase are documented for future production hotswap. Use this space to take notes, coordinate, and review synced world chunk data.</p>
+        
+        <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+            <div style="flex: 1; min-width: 300px;">
+                <h3 style="margin-top: 0;">Collaborative Notes (Auto-syncs to DB)</h3>
+                <textarea id="dev-notes" style="width: 100%; height: 200px; background: #000; color: #0f0; border: 1px solid #0f0; padding: 10px; box-sizing: border-box; font-family: monospace;"></textarea>
+                <button id="btn-save-notes" style="margin-top: 10px; background: #0f0; color: #000; border: none; padding: 8px 15px; cursor: pointer; font-weight: bold;">Save Notes</button>
+            </div>
+            
+            <div style="flex: 1; min-width: 300px;">
+                <h3 style="margin-top: 0;">World Data Sync Status</h3>
+                <div style="background: #000; border: 1px solid #0f0; padding: 10px; height: 200px; overflow-y: auto;">
+                    <p><strong>Your DB Row ID:</strong> <span id="dev-db-id">Loading...</span></p>
+                    <p><strong>Connected Peers:</strong> <span id="dev-peers">1</span></p>
+                    <p><strong>Removed Radios (Global):</strong> <span id="dev-removed-count">0</span></p>
+                    <p><strong>Placed Radios (Global):</strong> <span id="dev-placed-count">0</span></p>
+                    <hr style="border-color: #333;">
+                    <p style="font-size: 12px; color: #888;">Note: Per instructions, on load, all chunk modifications from other users are fetched, merged, and written into YOUR data row. This guarantees 100% persistent alignment for all users.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="./main.js"></script>
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"4c6229722a6346bc8eb5cb0e5eae5d41","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
+</body>
+</html>
